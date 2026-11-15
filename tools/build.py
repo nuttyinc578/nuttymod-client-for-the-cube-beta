@@ -29,7 +29,7 @@ def build_package(output):
             info.size, info.mode = len(data), 0o644
             archive.addfile(info, io.BytesIO(data))
     checksum = hashlib.sha256(package.read_bytes()).hexdigest()
-    (output/(NAME+'.tar.sha256')).write_text(checksum+'  '+package.name+'\n', encoding='utf-8')
+    (output/(NAME+'.tar.sha256')).write_text(checksum+'  '+package.name+'\n', encoding='utf-8', newline='\n')
     return package
 
 
@@ -55,7 +55,7 @@ def build_distribution(output):
             archive.writestr(info, data)
     checksums = ''.join(hashlib.sha256(path.read_bytes()).hexdigest()+'  '+path.name+'\n'
                         for path in (package, bundle))
-    (output/'SHA256SUMS.txt').write_text(checksums, encoding='utf-8')
+    (output/'SHA256SUMS.txt').write_text(checksums, encoding='utf-8', newline='\n')
     return package, bundle
 
 

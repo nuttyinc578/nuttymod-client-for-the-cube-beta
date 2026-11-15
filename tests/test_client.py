@@ -34,9 +34,11 @@ class ClientPackageTests(unittest.TestCase):
             with zipfile.ZipFile(bundle) as archive:
                 self.assertIsNone(archive.testzip())
                 self.assertEqual(archive.read(package.name), package.read_bytes())
+                self.assertNotIn(b'\r\n', archive.read(package.name+'.sha256'))
                 self.assertIn(b'05 Custom Cube', archive.read('INSTALL.md'))
                 self.assertEqual(archive.read('LICENSE'), (ROOT/'LICENSE').read_bytes())
             checksums = (package.parent/'SHA256SUMS.txt').read_text().splitlines()
+            self.assertNotIn(b'\r\n', (package.parent/'SHA256SUMS.txt').read_bytes())
             for line in checksums:
                 checksum, name = line.split('  ')
                 self.assertEqual(hashlib.sha256((package.parent/name).read_bytes()).hexdigest(), checksum)

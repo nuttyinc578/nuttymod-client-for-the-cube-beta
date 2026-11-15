@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+userdata/
+settings.json
+cpeloader_state.json
+.DS_Store

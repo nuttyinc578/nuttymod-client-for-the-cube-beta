@@ -10,7 +10,7 @@ Get **CPE Flasher Tool** at <https://nuttyinc578.github.io/CPE-flashing-tool/>.
    matching complete game source, and Python 3.11+ with pygame, pymunk and PyInstaller.
 4. In **02 Userdata**, choose or create userdata. Leave **Full rewrite** enabled.
 5. In **05 Custom Cube**, browse to `NuttyMod-Client-1.0.2.tar`.
-   If your flasher includes a bundled NuttyMod Client button, you can use it instead.
+   Select the 1.0.2 TAR even if the flasher also offers an older bundled client.
    Bundled Rephysics works; CPE Series 2 — Ortain is optional.
 6. Trust the selected inputs, click **Flash ZIP + Recompile**, and install the
    completed build. Launch the game and acknowledge the loader warnings.

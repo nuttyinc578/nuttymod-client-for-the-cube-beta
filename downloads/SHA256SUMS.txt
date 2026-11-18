@@ -1,2 +1,2 @@
 55fcd4f6ae6667c60e902736e1e23f6b3974e414b5a55a9183775b5f31b841b5  NuttyMod-Client-1.0.2.tar
-cb7d9ba0bb6bbf4c118ad4918b78caa3a24efd9e4574533a44367536e9afb51e  NuttyMod-Client-1.0.2.zip
+dc3954f5fe28af7bee646b2db1fef894aedcb878cbf15c26f7834c26b0ed2fb8  NuttyMod-Client-1.0.2.zip

@@ -83,6 +83,43 @@ class ClientRuntimeTests(unittest.TestCase):
             cpeloader=SimpleNamespace(require_flash=mock.Mock()),
         )
         self.client = self.module.NuttyModClient(self.app, self.temp.name)
+        self.client._performance_checked = True
+
+    def engine_session(self, native=True, initially_fast=False):
+        class Engine:
+            def __init__(engine):
+                engine.space = SimpleNamespace(iterations=20)
+                engine.particles = SimpleNamespace(max_particles=4000, particles=list(range(1000)))
+                engine._fixed_step = 1/120
+                engine._accumulator = .001
+                engine.fast_mode = False
+
+            def set_fast_mode(engine, enabled):
+                engine.fast_mode = enabled
+                engine.space.iterations = 12 if enabled else 20
+                engine.particles.max_particles = 800 if enabled else 4000
+
+        engine = Engine()
+        if initially_fast:
+            engine.set_fast_mode(True)
+        if not native:
+            engine.set_fast_mode = None
+        performance = SimpleNamespace(enabled=initially_fast, calls=[])
+        performance.fast_enabled = lambda: performance.enabled
+        def set_fast(enabled):
+            performance.enabled = enabled
+            performance.calls.append(enabled)
+            if native:
+                engine.set_fast_mode(enabled)
+        performance.set_fast_mode = set_fast
+        self.client._performance = performance
+        self.client.in_simulation = True
+        self.client.world = SimpleNamespace(cpe=engine)
+        return engine, performance
+
+    def enable_root(self):
+        self.app.nuttymod_root_enabled = True
+        self.app.root_mode_enabled = True
 
     def key(self, key):
         return pygame.event.Event(pygame.KEYDOWN, key=key, mod=0)
@@ -182,7 +219,7 @@ class ClientRuntimeTests(unittest.TestCase):
         common = self.app.common_events
         self.module.on_load(self.app, {'schema': 1})
         self.assertIs(self.app.common_events, common)
-        for tab in ('Display', 'Physics', 'About'):
+        for tab in self.module.TABS:
             client.tab, client.open = tab, True
             self.app.draw_toast()
         client.in_simulation, client.open = True, False
@@ -191,6 +228,170 @@ class ClientRuntimeTests(unittest.TestCase):
         self.app.draw_toast()
         self.assertEqual(client.shape_count, 12)
         self.app.cpeloader.require_flash.assert_called_once()
+
+    def test_optimizer_requires_both_active_root_components(self):
+        for root, mode in ((False, False), (True, False), (False, True), (1, True)):
+            self.app.nuttymod_root_enabled, self.app.root_mode_enabled = root, mode
+            self.client.activate('optimizer')
+            self.assertFalse(self.client.settings['optimizer'])
+        self.enable_root()
+        self.client.activate('optimizer')
+        self.assertTrue(self.client.settings['optimizer'])
+        self.assertTrue(json.loads(self.client.path.read_text())['optimizer'])
+
+    def test_saved_optimizer_cannot_run_without_root(self):
+        engine, performance = self.engine_session()
+        self.client.settings['optimizer'] = True
+        self.client.configure_cpe()
+        self.assertFalse(self.client.optimizer_active)
+        self.assertFalse(engine.fast_mode)
+        self.assertEqual(engine.space.iterations, 20)
+        self.assertEqual(performance.calls, [])
+
+    def test_saved_optimizer_can_be_turned_off_without_root(self):
+        self.client.settings['optimizer'] = True
+        self.client.activate('optimizer')
+        self.assertFalse(self.client.settings['optimizer'])
+
+    def test_optimizer_forces_fast_cpe_and_prioritizes_its_limits(self):
+        engine, performance = self.engine_session()
+        self.enable_root()
+        self.client.settings.update(optimizer=True, cpe_enabled=True, cpe_iterations=30,
+                                    cpe_particle_limit=4000, cpe_step_hz=240)
+        self.client.configure_cpe()
+        self.assertTrue(engine.fast_mode)
+        self.assertTrue(performance.enabled)
+        self.assertTrue(self.client.optimizer_active)
+        self.assertEqual(engine.space.iterations, 12)
+        self.assertEqual(engine.particles.max_particles, 800)
+        self.assertEqual(len(engine.particles.particles), 800)
+        self.assertEqual(engine._fixed_step, 1/120)
+        performance.set_fast_mode(False)
+        self.client.configure_cpe()
+        self.assertTrue(engine.fast_mode)
+        self.client.settings.update(cpe_iterations=4, cpe_particle_limit=200)
+        self.client.configure_cpe()
+        self.assertEqual((engine.space.iterations, engine.particles.max_particles), (4, 200))
+
+    def test_missing_native_fast_api_uses_compatibility_preset(self):
+        engine, _ = self.engine_session(native=False)
+        self.enable_root()
+        self.client.settings['optimizer'] = True
+        self.client.configure_cpe()
+        self.assertTrue(self.client.optimizer_active)
+        self.assertEqual(engine.space.iterations, 6)
+        self.assertEqual(engine.particles.max_particles, 800)
+        self.client.restore_cpe()
+        self.assertEqual((engine.space.iterations, engine.particles.max_particles), (20, 4000))
+
+    def test_optimizer_is_optional_and_preserves_existing_fast_mode(self):
+        engine, performance = self.engine_session(initially_fast=True)
+        self.enable_root()
+        self.client.configure_cpe()
+        self.assertEqual(performance.calls, [])
+        self.assertTrue(engine.fast_mode)
+        self.client.activate('optimizer')
+        self.client.activate('optimizer')
+        self.assertTrue(engine.fast_mode)
+        self.assertTrue(performance.enabled)
+        self.assertEqual((engine.space.iterations, engine.particles.max_particles), (12, 800))
+
+    def test_revoking_root_immediately_restores_game_configuration(self):
+        engine, performance = self.engine_session()
+        self.enable_root()
+        self.client.settings['optimizer'] = True
+        self.client.configure_cpe()
+        self.app.root_mode_enabled = False
+        self.client.configure_cpe()
+        self.assertFalse(engine.fast_mode)
+        self.assertFalse(performance.enabled)
+        self.assertFalse(self.client.optimizer_active)
+        self.assertEqual((engine.space.iterations, engine.particles.max_particles), (20, 4000))
+        self.assertTrue(self.client.settings['optimizer'])
+
+    def test_optimizer_preserves_game_changes_made_before_activation(self):
+        engine, performance = self.engine_session()
+        self.enable_root()
+        self.client.configure_cpe()
+        performance.set_fast_mode(True)
+        self.client.activate('optimizer')
+        self.client.activate('optimizer')
+        self.assertTrue(engine.fast_mode)
+        self.assertTrue(performance.enabled)
+        self.assertEqual(engine.space.iterations, 12)
+
+    def test_advanced_settings_restore_after_optimizer_and_reset(self):
+        engine, performance = self.engine_session()
+        self.enable_root()
+        self.client.settings.update(optimizer=True, cpe_enabled=True, cpe_iterations=30,
+                                    cpe_particle_limit=1600, cpe_step_hz=240)
+        self.client.configure_cpe()
+        self.client.activate('optimizer')
+        self.assertFalse(performance.enabled)
+        self.assertEqual(engine.space.iterations, 30)
+        self.assertEqual(engine.particles.max_particles, 1600)
+        self.assertEqual(engine._fixed_step, 1/240)
+        self.client.activate('reset-cpe')
+        self.assertEqual(engine.space.iterations, 20)
+        self.assertEqual(engine.particles.max_particles, 4000)
+        self.assertEqual(engine._fixed_step, 1/120)
+
+    def test_basic_presets_and_advanced_cycles_change_live_engine(self):
+        engine, _ = self.engine_session()
+        self.client.activate('cycle:cpe_preset')
+        self.assertEqual(self.client.settings['cpe_preset'], 'Balanced')
+        self.assertEqual((engine.space.iterations, engine.particles.max_particles), (12, 1600))
+        self.client.activate('cycle:cpe_step_hz')
+        self.assertEqual(self.client.settings['cpe_preset'], 'Custom')
+        self.assertEqual(engine._fixed_step, 1/240)
+        self.client.activate('cpe_particles')
+        self.assertEqual(engine.particles.max_particles, 0)
+        self.assertEqual(engine.particles.particles, [])
+
+    def test_cpe_controls_do_not_change_multiplayer_engine(self):
+        engine, performance = self.engine_session()
+        self.enable_root()
+        self.client.multiplayer = True
+        self.client.settings['optimizer'] = True
+        self.client.settings['cpe_enabled'] = True
+        self.client.configure_cpe()
+        self.client.activate('cycle:cpe_step_hz')
+        self.assertEqual(self.client.settings['cpe_step_hz'], 120)
+        self.assertEqual((engine.space.iterations, engine.particles.max_particles), (20, 4000))
+        self.assertEqual(performance.calls, [])
+        self.assertFalse(self.client.optimizer_active)
+
+    def test_invalid_advanced_preferences_are_rejected_and_old_settings_migrate(self):
+        self.client.path.parent.mkdir(parents=True)
+        self.client.path.write_text(json.dumps({'schema': 1, 'fps': False, 'crosshair': True,
+            'cpe_iterations': True, 'cpe_particle_limit': -800, 'cpe_step_hz': 0,
+            'cpe_preset': 'Invalid', 'optimizer': 'true'}))
+        loaded = self.module.NuttyModClient(self.app, self.temp.name)
+        self.assertFalse(loaded.settings['fps'])
+        self.assertTrue(loaded.settings['crosshair'])
+        for key in self.module.CPE_DEFAULTS:
+            self.assertEqual(loaded.settings[key], self.module.DEFAULTS[key])
+        self.assertFalse(loaded.settings['optimizer'])
+
+    def test_unsupported_engine_does_not_report_optimizer_active(self):
+        self.client.in_simulation = True
+        self.client.world = SimpleNamespace(cpe=SimpleNamespace())
+        self.enable_root()
+        self.client.settings['optimizer'] = True
+        self.client.configure_cpe()
+        self.assertFalse(self.client.optimizer_active)
+        self.assertIn('UNSUPPORTED', self.client.optimizer_status())
+
+    def test_root_page_consumes_clicks_and_enforces_dependencies(self):
+        self.client.open, self.client.tab = True, 'Root'
+        rect = next(rect for rect, action in self.client.controls() if action == 'optimizer')
+        events = [pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=rect.center)]
+        self.client.handle_events(events)
+        self.assertEqual(events, [])
+        self.assertFalse(self.client.settings['optimizer'])
+        self.enable_root()
+        self.client.handle_events([pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=rect.center)])
+        self.assertTrue(self.client.settings['optimizer'])
 
 
 if __name__ == '__main__':

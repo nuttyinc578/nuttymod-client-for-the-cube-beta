@@ -1,0 +1,12 @@
+{
+  "client_version": "1.0.2",
+  "real_game_frames": 20,
+  "shapes": 9,
+  "native_fast_cpe": true,
+  "rephysics_compatibility": true,
+  "root_gate": true,
+  "root_revocation_restored_manual_settings": true,
+  "session_configuration_restored": true,
+  "root_availability_test_fixture": true,
+  "network_used": false
+}

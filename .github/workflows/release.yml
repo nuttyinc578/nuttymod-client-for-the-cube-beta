@@ -38,5 +38,6 @@ jobs:
           if gh release view "$release_tag" > /dev/null 2>&1; then
             echo "Release $release_tag already exists; leaving it unchanged."
           else
-            gh release create "$release_tag" downloads/NuttyMod-Client-1.0.0.tar downloads/NuttyMod-Client-1.0.0.zip downloads/SHA256SUMS.txt --target "$GITHUB_SHA" --title "NuttyMod Client $release_tag" --notes-file docs/RELEASE_NOTES.md
+            release_version="${release_tag#v}"
+            gh release create "$release_tag" "downloads/NuttyMod-Client-$release_version.tar" "downloads/NuttyMod-Client-$release_version.zip" downloads/SHA256SUMS.txt --target "$GITHUB_SHA" --title "NuttyMod Client $release_tag" --notes-file docs/RELEASE_NOTES.md
           fi
